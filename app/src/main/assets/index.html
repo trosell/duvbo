@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="sv"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Avgång</title>
+<style>
+:root{--bg:#0b1f36;--cell:#173a5e;--ink:#fff;--soft:rgba(255,255,255,.78)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
+ padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+main{max-width:560px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.hero{border-radius:14px;padding:14px 16px;text-align:center;background:var(--cell)}
+.hero.walk{background:#1f9d55}
+.hero.run{background:#d02b2b}
+.hero .verdict{font-size:clamp(1.3rem,6vw,2rem)}
+.hero .num{font-size:clamp(3rem,14vw,4.5rem)}
+.hero .unit{font-size:1rem}
+.verdict{font-size:clamp(1.8rem,8vw,3rem);font-weight:800;min-height:1.2em}
+.num{font-size:clamp(6rem,30vw,11rem);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums}
+.unit{font-size:1.2rem;color:var(--soft)}
+.meta{margin-top:10px;color:var(--soft);font-size:.95rem}
+.best{border-radius:14px;padding:22px 16px;text-align:center;background:#12507a;border:3px solid #57c7ff}
+.best small{display:block;color:var(--soft)}
+.cell.pick{outline:3px solid #57c7ff;outline-offset:2px}
+.tag{font-size:.75rem;font-weight:800;background:#57c7ff;color:#08243b;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+.go{display:block;font-weight:700;margin-top:2px}
+.list{display:flex;flex-direction:column;gap:8px}
+.cell{display:flex;align-items:center;gap:14px;border-radius:10px;padding:12px 16px;background:var(--cell)}
+.cell.walk{background:#1a7a45}
+.cell.run{background:#a42323}
+.cell .m{font-size:2rem;font-weight:800;min-width:4.2ch;font-variant-numeric:tabular-nums}
+.cell .d{flex:1}
+.cell .d small{display:block;color:var(--soft)}
+.cell .t{font-weight:700;font-variant-numeric:tabular-nums}
+.dev{border-radius:10px;padding:12px 16px;background:#7a5a00;border-left:6px solid #ffc83d}
+.dev h2{font-size:1rem;margin:0 0 6px}
+.dev .it{margin:0 0 10px}.dev .it:last-child{margin:0}.dev b{display:block}.dev a{color:#ffe08a}
+.status{color:var(--soft);font-size:.85rem;text-align:center;padding:4px 8px}
+
+[hidden]{display:none!important}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.top h1{font-size:1.1rem;margin:0}
+button,input{font:inherit;border-radius:10px;border:1px solid rgba(255,255,255,.35);background:var(--cell);color:var(--ink);padding:10px 12px}
+input{width:100%;background:#0b1f36}
+.set label{display:block;margin-top:16px;font-weight:700}
+.res button{display:block;width:100%;text-align:left;margin-top:6px}
+.chosen{color:#8fd3ff;margin-top:6px}
+#save{width:100%;margin-top:22px;background:#1f9d55;font-weight:800}
+</style></head><body>
+<main id="app" hidden aria-live="polite">
+ <div class="top"><h1 id="title"></h1><button id="gear" type="button">Inställningar</button></div>
+ <section class="best" id="best"></section>
+ <section class="hero" id="hero">
+  <div class="verdict" id="verdict"></div><div class="num" id="num">–</div><div class="unit" id="unit">hämtar avgångar</div>
+  <div class="meta" id="meta"></div><div class="meta" id="walkinfo"></div>
+ </section>
+ <section class="list" id="list" aria-label="Kommande avgångar"></section>
+ <section class="dev" id="dev" hidden></section>
+ <div class="status" id="status"></div>
+</main>
+<main id="set" class="set" hidden>
+ <h1 style="font-size:1.4rem;margin:0">Inställningar</h1>
+ <label for="q1">Startstation</label>
+ <input id="q1" placeholder="Sök station, till exempel Duvbo" autocomplete="off">
+ <div class="chosen">Vald: <span id="s1"></span></div><div class="res" id="r1"></div>
+ <label for="q2">Slutstation</label>
+ <input id="q2" placeholder="Sök station, till exempel Kungsträdgården" autocomplete="off">
+ <div class="chosen">Vald: <span id="s2"></span></div><div class="res" id="r2"></div>
+ <label for="walk">Gångtid till perrongen (minuter)</label>
+ <input id="walk" type="number" min="1" max="90" step="0.5" inputmode="decimal">
+ <div id="msg" class="status"></div>
+ <button id="save" type="button">Spara</button>
+</main>
+<script>
+const JP='https://journeyplanner.integration.sl.se/v2',DEVAPI='https://deviations.integration.sl.se/v1/messages';
+const SWEET_MIN=20,WINDOW_SEC=120,SHOW=5;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ls={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const pad=n=>String(n).padStart(2,'0');
+const site=id=>Number(String(id).slice(-8));
+const hhmm=t=>t.toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'});
+let cfg=ls.get('cfg',null),pend={},res={},deps=[],devs=[],lastOk=0,err='',devErr='',tm;
+
+function openSet(){pend={from:cfg&&cfg.from,to:cfg&&cfg.to};$('walk').value=cfg?cfg.walkMin:12;
+ $('s1').textContent=pend.from?pend.from.name:'ingen';$('s2').textContent=pend.to?pend.to.name:'ingen';
+ $('msg').textContent='';$('set').hidden=false;$('app').hidden=true}
+function search(n){const q=$('q'+n).value.trim();clearTimeout(tm);if(q.length<2){$('r'+n).innerHTML='';return}
+ tm=setTimeout(async()=>{try{
+  const j=await(await fetch(JP+'/stop-finder?name_sf='+encodeURIComponent(q)+'&any_obj_filter_sf=2&type_sf=any')).json();
+  const L=(j.locations||[]).filter(l=>l.type==='stop'&&l.id).slice(0,6);res[n]=L;
+  $('r'+n).innerHTML=L.map((l,i)=>'<button type="button" data-n="'+n+'" data-i="'+i+'">'+esc(l.name)+'</button>').join('')||'<small>Inga träffar</small>';
+ }catch(e){$('r'+n).textContent='Sökningen misslyckades: '+(e.message||e)}},300)}
+$('q1').oninput=()=>search(1);$('q2').oninput=()=>search(2);$('gear').onclick=openSet;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-n]');if(!b)return;
+ const n=b.dataset.n,l=res[n][b.dataset.i];pend[n==='1'?'from':'to']={id:l.id,name:l.name};
+ $('s'+n).textContent=l.name;$('r'+n).innerHTML='';$('q'+n).value=''});
+$('save').onclick=()=>{const w=Number($('walk').value);
+ if(!pend.from||!pend.to||!(w>0)){$('msg').textContent='Välj start, slut och en gångtid i minuter.';return}
+ cfg={from:pend.from,to:pend.to,walkMin:w};ls.set('cfg',cfg);deps=[];devs=[];lastOk=0;err='';
+ $('set').hidden=true;$('app').hidden=false;draw();refresh();loadDevs()};
+
+async function trips(){
+ const seen=new Map();let when='';
+ for(let i=0;i<3&&seen.size<SHOW;i++){
+  const u=JP+'/trips?type_origin=any&type_destination=any&name_origin='+cfg.from.id+'&name_destination='+cfg.to.id+'&calc_number_of_trips=3'+when;
+  const r=await fetch(u);if(!r.ok)throw new Error('Reseplaneraren svarade '+r.status);
+  const j=await r.json(),before=seen.size;let last=0;
+  (j.journeys||[]).forEach(jr=>{
+   const lg=(jr.legs||[]).find(l=>l.transportation&&l.transportation.product&&l.transportation.product.class<99);if(!lg)return;
+   const o=lg.origin||{},t=new Date(o.departureTimeEstimated||o.departureTimePlanned);if(isNaN(t))return;
+   const tr=lg.transportation,dn=tr.destination&&tr.destination.name;
+   seen.set(+t,{t,line:tr.disassembledName||tr.number||'',dest:dn||''});last=Math.max(last,+t)});
+  if(seen.size===before||!last)break;
+  const d=new Date(last+60000);when='&itd_date='+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'&itd_time='+pad(d.getHours())+pad(d.getMinutes());
+ }
+ return [...seen.values()].sort((a,b)=>a.t-b.t);
+}
+async function refresh(){if(!cfg)return;try{deps=await trips();lastOk=Date.now();err=''}catch(e){err=(e&&e.message)||String(e)}draw()}
+async function loadDevs(){if(!cfg)return;
+ try{const r=await fetch(DEVAPI+'?site='+site(cfg.from.id));if(!r.ok)throw new Error('HTTP '+r.status);
+  const arr=await r.json(),ids=new Set();
+  devs=(Array.isArray(arr)?arr:[]).filter(x=>{if(ids.has(x.deviation_case_id))return false;ids.add(x.deviation_case_id);return true})
+   .map(x=>{const mv=x.message_variants||[],v=mv.find(v=>v.language==='sv')||mv[0]||{};return{h:v.header||'',d:v.details||'',l:/^https?:\/\//.test(v.weblink||'')?v.weblink:''}}).filter(x=>x.h||x.d);
+  devErr=''}catch(e){devErr='Kunde inte hämta trafikinformation ('+((e&&e.message)||e)+').'}
+ draw()}
+
+function draw(){
+ if(!cfg||$('app').hidden)return;
+ const walkSec=cfg.walkMin*60,cls=s=>s<walkSec?'run':s<=walkSec+WINDOW_SEC?'walk':'';
+ const goText=d=>{const sw=SWEET_MIN*60;
+  if(d.s>=sw){const x=Math.floor((d.s-sw)/60);return x<1?'Gå nu':'Gå inom '+x+' min (kl '+hhmm(new Date(d.t-sw*1000))+')'}
+  if(d.s>=walkSec){const x=Math.floor((d.s-walkSec)/60);return x<1?'Gå nu':'Gå senast om '+x+' min'}
+  return 'Spring nu'};
+ $('title').textContent=cfg.from.name+' till '+cfg.to.name;
+ const now=Date.now(),full=deps.filter(d=>d.t-now>-20000).map(d=>({...d,s:(d.t-now)/1000,m:Math.max(0,Math.floor((d.t-now)/60000))})),
+  list=full.slice(0,SHOW),pick=full.find(d=>d.s>=SWEET_MIN*60),hero=$('hero');
+ $('walkinfo').textContent='Gångtid till perrongen: '+cfg.walkMin+' min';
+ if(!list.length){hero.className='hero';$('verdict').textContent='';$('num').textContent='–';
+  $('unit').textContent=err&&!lastOk?'Kunde inte hämta avgångar':lastOk?'Inga avgångar just nu':'hämtar avgångar';$('meta').textContent='';$('list').innerHTML=''}
+ else{const n=list[0],c=cls(n.s);hero.className='hero '+c;
+  $('verdict').textContent=c==='run'?'Run':c==='walk'?'Walk':'';$('num').textContent=n.m;$('unit').textContent=n.m===1?'minut kvar':'minuter kvar';
+  $('meta').textContent='Nästa från '+cfg.from.name+', avgår '+hhmm(n.t);
+  $('list').innerHTML=list.map(d=>{const p=pick&&+d.t===+pick.t;return '<div class="cell '+cls(d.s)+(p?' pick':'')+'"><div class="m">'+d.m+' min</div><div class="d">Linje '+esc(d.line)+(p?'<span class="tag">Sweetspot</span>':'')+'<small>mot '+esc(d.dest)+'</small><span class="go">'+goText(d)+'</span></div><div class="t">'+hhmm(d.t)+'</div></div>'}).join('')}
+ const sw='<small>Sweetspot: gå hemifrån '+SWEET_MIN+' min före avgång</small>';
+ if(pick){const x=Math.floor((pick.s-SWEET_MIN*60)/60);
+  $('best').innerHTML=sw+'<div class="verdict">'+(x<1?'Gå hemifrån':'Gå hemifrån inom')+'</div><div class="num">'+(x<1?'Nu':x)+'</div><div class="unit">'+(x<1?'':x===1?'minut':'minuter')+'</div><div class="meta">för tåget '+hhmm(pick.t)+', hemifrån kl '+hhmm(new Date(pick.t-SWEET_MIN*60000))+'</div>'}
+ else $('best').innerHTML=sw+'<div class="num">–</div><div class="unit">'+(lastOk?'Ingen avgång 20 minuter bort eller mer just nu':'hämtar avgångar')+'</div>';
+ const dv=$('dev');
+ if(devs.length){dv.hidden=false;dv.innerHTML='<h2>Trafikinformation</h2>'+devs.map(x=>'<div class="it">'+(x.h?'<b>'+esc(x.h)+'</b>':'')+(x.d?'<span>'+esc(x.d)+'</span>':'')+(x.l?' <a href="'+esc(x.l)+'" target="_blank" rel="noopener">Läs mer</a>':'')+'</div>').join('')}
+ else{dv.hidden=true;dv.innerHTML=''}
+ const age=lastOk?Math.round((now-lastOk)/1000):null;
+ $('status').textContent=(err?'Fel: '+err+(lastOk?' Visar data från för '+age+' s sedan.':''):(age!==null?'Uppdaterad för '+age+' s sedan.':''))+(devErr?' '+devErr:'');
+}
+if(cfg){$('app').hidden=false;draw();refresh();loadDevs()}else openSet();
+setInterval(refresh,30000);setInterval(loadDevs,60000);setInterval(draw,1000);
+</script></body></html>
