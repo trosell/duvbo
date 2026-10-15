@@ -72,7 +72,7 @@ input{width:100%;background:#0b1f36}
 </main>
 <script>
 const JP='https://journeyplanner.integration.sl.se/v2',DEVAPI='https://deviations.integration.sl.se/v1/messages';
-const SWEET_MIN=20,WINDOW_SEC=120,SHOW=5;
+const SWEET_MIN=15,WINDOW_SEC=120,SHOW=5;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ls={get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
